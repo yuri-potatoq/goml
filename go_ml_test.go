@@ -1,4 +1,4 @@
-package main
+package go_ml
 
 import (
 	"strings"
@@ -22,9 +22,19 @@ func TestBasicDOM(t *testing.T) {
 			givenDOM:     Div(ClassNames("main", "container"))(Div()()),
 		},
 		{
-			name:         "build script tag with non key-valued attribute",
+			name:         "build script tag with non key-valued attributes",
 			expectedHtml: `<script defer></script>`,
 			givenDOM:     Script(Defer())(),
+		},
+		{
+			name:         "build input with checked attribute",
+			expectedHtml: `<input checked/>`,
+			givenDOM:     Input(Checked()),
+		},
+		{
+			name:         "build script tag with source files",
+			expectedHtml: `<script src="index.js"></script>`,
+			givenDOM:     Script(Src("index.js"))(),
 		},
 		{
 			name:         "build input regular tag",
@@ -35,6 +45,11 @@ func TestBasicDOM(t *testing.T) {
 			name:         "build non-void tag with inner text - 1",
 			expectedHtml: `<div>olá &#10; mundo</div>`,
 			givenDOM:     Div()(RawText("olá &#10; mundo")),
+		},
+		{
+			name:         "build non-void tag with inner text - 2",
+			expectedHtml: `<div>olá &#10; mundo<div></div>test<div></div></div>`,
+			givenDOM:     Div()(RawText("olá &#10; mundo"), Div()(), RawText("test"), Div()()),
 		},
 		{
 			name:         "build non-void tag with inner text - 2",

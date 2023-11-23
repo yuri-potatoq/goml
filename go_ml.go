@@ -1,4 +1,4 @@
-package main
+package go_ml
 
 import (
 	"fmt"
@@ -46,6 +46,7 @@ func (ele HTMLElement) String() string {
 
 	// non-void -> <[tag][?attrs]>[content]</[tag]>
 	default:
+		// treat as element node or just an raw text
 		for _, ct := range ele.contents {
 			// TODO: handle write error correctly
 			if ct.raw.text != "" {
@@ -57,15 +58,6 @@ func (ele HTMLElement) String() string {
 		}
 		return fmt.Sprintf(`<%s%s>%s</%s>`,
 			ele.tagName, strings.TrimSuffix(attrStr, " "), contentStr.String(), ele.tagName)
-	}
-}
-
-func (el HTMLElement) WithText(text string) HTMLElement {
-	return HTMLElement{
-		tagName:  el.tagName,
-		attrs:    el.attrs,
-		contents: el.contents,
-		elType:   el.elType,
 	}
 }
 
@@ -90,58 +82,108 @@ func buildDOM(ele HTMLElement) string {
 	return main.String()
 }
 
-/* HTML attribute definitions
+/*
+	HTML attribute definitions
+
 Ref: https://www.w3.org/TR/2012/WD-html-markup-20120329/syntax.html#syntax-attributes
 */
+type AttributeType string
+
+const (
+	None         AttributeType = "none"
+	Single       AttributeType = "single"
+	DoubleQuoted AttributeType = "double-quoted"
+)
 
 type HTMLAttribute struct {
 	name string
 	// space delimited values
-	values []string
+	values   []string
+	attrType AttributeType
 }
 
 func (attr HTMLAttribute) String() string {
-	var st string
-
-	if attr.name != "" && len(attr.values) < 1 {
+	switch attr.attrType {
+	case DoubleQuoted:
+		var st string
+		for _, v := range attr.values {
+			st += v + " "
+		}
+		return fmt.Sprintf(`%s="%s"`, attr.name, strings.TrimSuffix(st, " "))
+	case Single:
 		return attr.name
+	case None:
+		return ""
+	default:
+		return ""
 	}
-
-	for _, v := range attr.values {
-		st += v + " "
-	}
-	return fmt.Sprintf(`%s="%s"`, attr.name, strings.TrimSuffix(st, " "))
 }
 
 /* Attributes functions declarations */
-func attr(name string, values ...string) HTMLAttribute {
-	return HTMLAttribute{name: name, values: values}
+func Attr(name string, attrType AttributeType, values ...string) HTMLAttribute {
+	return HTMLAttribute{name: name, values: values, attrType: attrType}
 }
 
 func ClassNames(values ...string) HTMLAttribute {
-	return attr("class", values...)
+	return Attr("class", DoubleQuoted, values...)
+}
+
+func PlaceHolder(value string) HTMLAttribute {
+	return Attr("placeholder", DoubleQuoted, value)
+}
+
+func Id(values ...string) HTMLAttribute {
+	return Attr("id", DoubleQuoted, values...)
+}
+
+func Name(values ...string) HTMLAttribute {
+	return Attr("name", DoubleQuoted, values...)
 }
 
 func Lang(values ...string) HTMLAttribute {
-	return attr("lang", values...)
+	return Attr("lang", DoubleQuoted, values...)
 }
 
 func Type(values ...string) HTMLAttribute {
-	return attr("type", values...)
+	return Attr("type", DoubleQuoted, values...)
+}
+
+func Src(values ...string) HTMLAttribute {
+	return Attr("src", DoubleQuoted, values...)
 }
 
 func Defer() HTMLAttribute {
-	return attr("defer")
+	return Attr("defer", Single)
+}
+
+func Checked() HTMLAttribute {
+	return Attr("checked", Single)
 }
 
 func Required() HTMLAttribute {
-	return attr("required")
+	return Attr("required", Single)
+}
+
+func Action(values ...string) HTMLAttribute {
+	return Attr("action", Single, values...)
+}
+
+func Method(values ...string) HTMLAttribute {
+	return Attr("method", Single, values...)
+}
+
+/* Attributes utils */
+func IsChecked(check bool) (attr HTMLAttribute) {
+	if check {
+		return Checked()
+	}
+	return HTMLAttribute{attrType: None}
 }
 
 /* Tags functions declarations */
 type tagClosure func(contents ...HTMLContent) HTMLContent
 
-func tag(tagName string, elType ElementType, attrs ...HTMLAttribute) tagClosure {
+func Tag(tagName string, elType ElementType, attrs ...HTMLAttribute) tagClosure {
 	return func(contents ...HTMLContent) HTMLContent {
 		return HTMLContent{
 			child: HTMLElement{
@@ -159,25 +201,57 @@ func RawText(text string) HTMLContent {
 }
 
 func Input(attrs ...HTMLAttribute) HTMLContent {
-	return tag("input", Void, attrs...)()
+	return Tag("input", Void, attrs...)()
+}
+
+func Button(attrs ...HTMLAttribute) tagClosure {
+	return Tag("button", NonVoid, attrs...)
 }
 
 func Script(attrs ...HTMLAttribute) tagClosure {
-	return tag("script", NonVoid, attrs...)
+	return Tag("script", NonVoid, attrs...)
+}
+
+func Title(attrs ...HTMLAttribute) tagClosure {
+	return Tag("title", NonVoid, attrs...)
 }
 
 func Head(attrs ...HTMLAttribute) tagClosure {
-	return tag("head", NonVoid, attrs...)
+	return Tag("head", NonVoid, attrs...)
 }
 
 func Div(attrs ...HTMLAttribute) tagClosure {
-	return tag("div", NonVoid, attrs...)
+	return Tag("div", NonVoid, attrs...)
 }
 
 func Body(attrs ...HTMLAttribute) tagClosure {
-	return tag("body", NonVoid, attrs...)
+	return Tag("body", NonVoid, attrs...)
 }
 
 func Html(attrs ...HTMLAttribute) tagClosure {
-	return tag("html", NonVoid, attrs...)
+	return Tag("html", NonVoid, attrs...)
+}
+
+func Form(attrs ...HTMLAttribute) tagClosure {
+	return Tag("form", NonVoid, attrs...)
+}
+
+func Label(attrs ...HTMLAttribute) tagClosure {
+	return Tag("label", NonVoid, attrs...)
+}
+
+func Table(attrs ...HTMLAttribute) tagClosure {
+	return Tag("table", NonVoid, attrs...)
+}
+
+func Th(attrs ...HTMLAttribute) tagClosure {
+	return Tag("th", NonVoid, attrs...)
+}
+
+func Tr(attrs ...HTMLAttribute) tagClosure {
+	return Tag("tr", NonVoid, attrs...)
+}
+
+func Td(attrs ...HTMLAttribute) tagClosure {
+	return Tag("td", NonVoid, attrs...)
 }
