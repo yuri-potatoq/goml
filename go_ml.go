@@ -33,10 +33,9 @@ func (ele HTMLElement) String() string {
 	var contentStr strings.Builder
 	var attrStr string
 
-	// if element has no attrs, the space become a suffix and will be removed
-	attrStr += " "
+	// if element has no attrs, the space become a suffix and will be removed	
 	for _, attr := range ele.attrs {
-		attrStr += attr.String()
+		attrStr += " " + attr.String()
 	}
 
 	switch ele.elType {
@@ -147,6 +146,11 @@ func Lang(values ...string) HTMLAttribute {
 func Type(values ...string) HTMLAttribute {
 	return Attr("type", DoubleQuoted, values...)
 }
+
+func Value(values ...string) HTMLAttribute {
+	return Attr("value", DoubleQuoted, values...)
+}
+
 
 func Src(values ...string) HTMLAttribute {
 	return Attr("src", DoubleQuoted, values...)

@@ -1,11 +1,10 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"net/http"
-	"strconv"
 	"strings"
+	"time"
 
 	ht "github.com/yuri-potatoq/go_ml"
 )
@@ -17,47 +16,51 @@ var (
 
 /* Data */
 type TodoList struct {
-	id        int
+	id        string
 	title     string
 	isChecked bool
 }
 
 type TodoListDb struct {
-	storage []TodoList
+	storage map[string]TodoList
 }
 
-func (db *TodoListDb) Add(td TodoList) []TodoList {
-	td.id = len(db.storage)
-
-	fmt.Printf("Before Add: %v\n", db.storage)
-	db.storage = append(db.storage, td)
-	fmt.Printf("After Add: %v\n", db.storage)
-	return db.storage
-}
-
-func (db *TodoListDb) Update(todoId int, isChecked bool) error {
-	fmt.Printf("Before Update: %v\n", db.storage)
-	if todoId < 0 || todoId > len(db.storage) {
-		return fmt.Errorf("not found with values: Id: %d Checked: %v", todoId, isChecked)
+func (db *TodoListDb) Add(td TodoList) (tds []TodoList) {
+	td.id = fmt.Sprintf("%d", time.Now().Unix())
+	db.storage[td.id] = td
+	for _, t := range db.storage {
+		tds = append(tds, t)
 	}
+	return
+}
 
-	current := db.storage[todoId]
+func (db *TodoListDb) Delete(todoId string) {
+	delete(db.storage, todoId)
+}
+
+func (db *TodoListDb) Update(todoId string, isChecked bool) error {
+	current, ok := db.storage[todoId]
+	if !ok {
+		return fmt.Errorf("[%s] not found!", todoId)
+	}
 	current.isChecked = isChecked
 	db.storage[todoId] = current
-
-	fmt.Printf("After Update: %v\n", db.storage)
 	return nil
 }
 
-func (db *TodoListDb) Get(todoId int) (TodoList, error) {
-	if todoId >= 0 && todoId <= len(db.storage) {
-		return db.storage[todoId], nil
+func (db *TodoListDb) Get(todoId string) (TodoList, error) {
+	current, ok := db.storage[todoId]
+	if !ok {
+		return TodoList{}, fmt.Errorf("[%s] not found!", todoId)
 	}
-	return TodoList{}, errors.New("not found")
+	return current, nil
 }
 
-func (db *TodoListDb) GetAll() []TodoList {
-	return db.storage
+func (db *TodoListDb) GetAll() (tds []TodoList) {
+	for _, t := range db.storage {
+		tds = append(tds, t)
+	}
+	return
 }
 
 /* Views */
@@ -86,11 +89,19 @@ func ListOfTodos(todos ...TodoList) ht.HTMLContent {
 			ht.Th(ht.ClassNames("h-10 border border-gray-100 rounded"))(
 				ht.Input(
 					ht.Type("checkbox"),
-					ht.Id(fmt.Sprintf("%d", t.id)),
+					ht.Id(t.id),
 					ht.IsChecked(t.isChecked),
 					ht.HxOn("click", "fetch(`/todo/${this.checked ? 'enable' : 'disable'}/${this.id}`, {method: 'PUT'})")),
 			),
 			ht.Th()(ht.RawText(t.title)),
+			ht.Th()(
+				ht.Button(
+					ht.ClassNames("bg-white hover:bg-gray-100 text-gray-800 font-semibold py-2 px-4 border border-gray-400 rounded hover:shadow-inner"),
+					ht.HxDelete(fmt.Sprintf("/todo/%s", t.id)),
+					ht.HxTarget("#todo-list-tb-container"),
+					ht.HxSwap("outerHTML"),
+				)(ht.RawText("Delete")),
+			),
 		))
 	}
 
@@ -120,14 +131,7 @@ func AddTodoForm() ht.HTMLContent {
 }
 
 func main() {
-	db := new(TodoListDb)
-	atoiOrNegative := func(s string) int {
-		n, err := strconv.Atoi(s)
-		if err != nil {
-			return -1
-		}
-		return n
-	}
+	db := TodoListDb{storage: make(map[string]TodoList)}
 
 	http.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		pathStrs := strings.Split(strings.TrimSpace(r.URL.Path), "/")
@@ -145,12 +149,15 @@ func main() {
 			w.Write([]byte(doc.BuildDOM()))
 			break
 		case http.MethodPut:
-			fmt.Println(pathStrs)
 			// should only be /todo/{disable|enable}/{n}
-			if err := db.Update(atoiOrNegative(pathStrs[3]), pathStrs[2] == "enable"); err != nil {
+			if err := db.Update(pathStrs[3], pathStrs[2] == "enable"); err != nil {
 				fmt.Println(err)
 				w.WriteHeader(http.StatusBadRequest)
 			}
+			break
+		case http.MethodDelete:
+			db.Delete(pathStrs[2])
+			w.Write([]byte(ListOfTodos(db.GetAll()...).BuildDOM()))
 			break
 		default:
 			w.WriteHeader(http.StatusNotFound)

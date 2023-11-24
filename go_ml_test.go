@@ -27,6 +27,11 @@ func TestBasicDOM(t *testing.T) {
 			givenDOM:     Script(Defer())(),
 		},
 		{
+			name:         "build script tag with multiple attributes",
+			expectedHtml: `<script defer src="./index.js"></script>`,
+			givenDOM:     Script(Defer(), Src("./index.js"))(),
+		},
+		{
 			name:         "build input with checked attribute",
 			expectedHtml: `<input checked/>`,
 			givenDOM:     Input(Checked()),
@@ -55,6 +60,12 @@ func TestBasicDOM(t *testing.T) {
 			name:         "build non-void tag with inner text - 2",
 			expectedHtml: `<div>olá &#10; mundo<div></div>test<div></div></div>`,
 			givenDOM:     Div()(RawText("olá &#10; mundo"), Div()(), RawText("test"), Div()()),
+		},
+		/* HTMX attributes tests */
+		{
+			name:         "build input with htmx attributes",
+			expectedHtml: `<input checked hx-on:click="console.log('hello')"/>`,
+			givenDOM:     Input(Checked(), HxOn("click", "console.log('hello')")),
 		},
 		// TODO: fix wrong attribute spaces sort
 		// i.g.: <input type="checkbox"required required="required"/>
