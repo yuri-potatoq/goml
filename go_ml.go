@@ -32,10 +32,25 @@ type HTMLContent struct {
 func (ele HTMLElement) String() string {
 	var contentStr strings.Builder
 	var attrStr string
+	var attrKeys []string
 
-	// if element has no attrs, the space become a suffix and will be removed	
+	// rules:
+	// 1. we need to merge all attributes with the same name
+	// 2. if element has no attrs, the space become a suffix and will be removed
+	attrMap := make(map[string]HTMLAttribute)	
 	for _, attr := range ele.attrs {
-		attrStr += " " + attr.String()
+		if curAttr, ok := attrMap[attr.name]; ok {
+			curAttr.values = append(curAttr.values, attr.values...)
+			attrMap[attr.name] = curAttr
+		} else {
+			attrKeys = append(attrKeys, attr.name)
+			attrMap[attr.name] = attr			
+		}
+	}
+
+	// TODO: find another aproach to have all the parsed attributes in O(n)
+	for _, k := range attrKeys {
+		attrStr += " " + attrMap[k].String()
 	}
 
 	switch ele.elType {
@@ -150,7 +165,6 @@ func Type(values ...string) HTMLAttribute {
 func Value(values ...string) HTMLAttribute {
 	return Attr("value", DoubleQuoted, values...)
 }
-
 
 func Src(values ...string) HTMLAttribute {
 	return Attr("src", DoubleQuoted, values...)

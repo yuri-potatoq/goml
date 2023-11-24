@@ -61,6 +61,11 @@ func TestBasicDOM(t *testing.T) {
 			expectedHtml: `<div>olá &#10; mundo<div></div>test<div></div></div>`,
 			givenDOM:     Div()(RawText("olá &#10; mundo"), Div()(), RawText("test"), Div()()),
 		},
+		{
+			name:         "build input with mutiple class attributes",
+			expectedHtml: `<input name="task" class="text name editable"/>`,
+			givenDOM:     Input(Name("task"), ClassNames("text"), ClassNames("name"), ClassNames("editable")),
+		},
 		/* HTMX attributes tests */
 		{
 			name:         "build input with htmx attributes",

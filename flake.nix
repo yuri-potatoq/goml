@@ -1,5 +1,5 @@
 {
-  description = "Go Projet Template";
+  description = "HTML";
 
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
@@ -9,7 +9,7 @@
   outputs = { self, nixpkgs, utils }:
     utils.lib.eachDefaultSystem (system:
       let
-        pname = "project-name";
+        pname = "goml";
         version = "0.0.1";
         pkgs = import nixpkgs {
           inherit system;
