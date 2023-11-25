@@ -1,7 +1,10 @@
 package go_ml
 
 import (
+	"errors"
 	"fmt"
+	"io"
+	"log/slog"
 	"strings"
 )
 
@@ -11,6 +14,13 @@ type ElementType string
 const (
 	NonVoid ElementType = "non-void"
 	Void    ElementType = "void"
+)
+
+type ContentType string
+
+const (
+	Raw  ContentType = "raw-text"
+	Node ContentType = "node"
 )
 
 type HTMLRawContent struct {
@@ -25,26 +35,111 @@ type HTMLElement struct {
 }
 
 type HTMLContent struct {
-	child HTMLElement
-	raw   HTMLRawContent
+	ctType ContentType
+	child  HTMLElement
+	raw    HTMLRawContent
 }
 
-func (ele HTMLElement) String() string {
-	var contentStr strings.Builder
+// ref: https://github.com/golang/go/issues/62005#issuecomment-1747630201
+type NopWritter struct{}
+
+func (NopWritter) Write([]byte) (int, error) { return 0, nil }
+
+func NopLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(new(NopWritter), nil))
+}
+
+type buildConfig struct {
+	stdWriter io.Writer
+	debug     struct {
+		logger *slog.Logger
+	}
+	identitation struct {
+		isEnable        bool
+		identationLevel uint8
+	}
+}
+
+type buildOpt func(config *buildConfig)
+
+func WithWriter(w io.Writer) buildOpt {
+	return func(config *buildConfig) {
+		config.stdWriter = w
+	}
+}
+
+// TODO: create logger interface
+func WithLogger(logger *slog.Logger) buildOpt {
+	return func(config *buildConfig) {
+		config.debug.logger = logger
+	}
+}
+
+func WithDefaultIdentation() buildOpt {
+	return func(config *buildConfig) {
+		config.identitation.identationLevel = 4
+		config.identitation.isEnable = true
+	}
+}
+
+func (ele HTMLElement) BuildDOM(opts ...buildOpt) error {
+	return buildDOM(ele, opts...)
+}
+
+func (ct HTMLContent) BuildDOM(opts ...buildOpt) error {
+	return buildDOM(ct.child, opts...)
+}
+
+func buildDOM(ele HTMLElement, opts ...buildOpt) error {
+	var totalWritten int
+	defaultCfg := new(buildConfig)
+	defaultCfg.debug.logger = NopLogger()
+	for _, op := range opts {
+		op(defaultCfg)
+	}
+
+	if defaultCfg.stdWriter == nil {
+		return errors.New("writer not found!")
+	}
+
+	// hardcoded html document compliance
+	if ele.tagName == "html" {
+		totalWritten, _ = defaultCfg.stdWriter.Write([]byte("<!DOCTYPE html>"))
+	}
+
+	n, err := defaultCfg.parseElement(ele)
+	if err != nil {
+		return err
+	}
+	totalWritten += n
+
+	defaultCfg.debug.logger.Info("Element was written with: ",
+		"tag_name", ele.tagName, "bytes", totalWritten)
+	return nil
+}
+
+func (cfg *buildConfig) parseElement(ele HTMLElement) (int, error) {
 	var attrStr string
 	var attrKeys []string
+	var totalWritten int
+
+	writeOrErr := func(s string) error {
+		n, err := cfg.stdWriter.Write([]byte(s))
+		totalWritten += n
+		return err
+	}
 
 	// rules:
 	// 1. we need to merge all attributes with the same name
 	// 2. if element has no attrs, the space become a suffix and will be removed
-	attrMap := make(map[string]HTMLAttribute)	
+	attrMap := make(map[string]HTMLAttribute)
 	for _, attr := range ele.attrs {
 		if curAttr, ok := attrMap[attr.name]; ok {
 			curAttr.values = append(curAttr.values, attr.values...)
 			attrMap[attr.name] = curAttr
 		} else {
 			attrKeys = append(attrKeys, attr.name)
-			attrMap[attr.name] = attr			
+			attrMap[attr.name] = attr
 		}
 	}
 
@@ -52,48 +147,45 @@ func (ele HTMLElement) String() string {
 	for _, k := range attrKeys {
 		attrStr += " " + attrMap[k].String()
 	}
+	attrStr = strings.TrimSuffix(attrStr, " ")
 
 	switch ele.elType {
 	// void -> <[tag][?attrs]/>
 	case Void:
-		return fmt.Sprintf(`<%s%s/>`, ele.tagName, strings.TrimSuffix(attrStr, " "))
+		if err := writeOrErr(fmt.Sprintf(`<%s%s/>`, ele.tagName, attrStr)); err != nil {
+			return totalWritten, err
+		}
+		return totalWritten, nil
 
 	// non-void -> <[tag][?attrs]>[content]</[tag]>
 	default:
-		// treat as element node or just an raw text
-		for _, ct := range ele.contents {
-			// TODO: handle write error correctly
-			if ct.raw.text != "" {
-				contentStr.WriteString(ct.raw.text)
-			} else {
-				contentStr.WriteString(ct.child.String())
-			}
-
+		if err := writeOrErr("<" + ele.tagName + attrStr + ">"); err != nil {
+			return totalWritten, err
 		}
-		return fmt.Sprintf(`<%s%s>%s</%s>`,
-			ele.tagName, strings.TrimSuffix(attrStr, " "), contentStr.String(), ele.tagName)
+
+		// threat as element node or just an raw text
+		for _, ct := range ele.contents {
+			switch ct.ctType {
+			case Node:
+				n, err := cfg.parseElement(ct.child)
+				if err != nil {
+					return totalWritten, err
+				}
+				totalWritten += n
+			case Raw:
+				if err := writeOrErr(ct.raw.text); err != nil {
+					return totalWritten, err
+				}
+			default:
+				return totalWritten, fmt.Errorf("not recognized content type: [%s]", ct.ctType)
+			}
+		}
+
+		if err := writeOrErr("</" + ele.tagName + ">"); err != nil {
+			return totalWritten, err
+		}
+		return totalWritten, nil
 	}
-}
-
-func (ele HTMLElement) BuildDOM() string {
-	return buildDOM(ele)
-}
-
-func (ct HTMLContent) BuildDOM() string {
-	return buildDOM(ct.child)
-}
-
-func buildDOM(ele HTMLElement) string {
-	var main strings.Builder
-
-	// hardcoded html document compliance
-	if ele.tagName == "html" {
-		main.WriteString("<!DOCTYPE html>")
-	}
-
-	// TODO: handle write error correctly
-	main.WriteString(ele.String())
-	return main.String()
 }
 
 /*
@@ -210,12 +302,13 @@ func Tag(tagName string, elType ElementType, attrs ...HTMLAttribute) tagClosure 
 				attrs:    attrs,
 				elType:   elType,
 			},
+			ctType: Node,
 		}
 	}
 }
 
 func RawText(text string) HTMLContent {
-	return HTMLContent{raw: HTMLRawContent{text: text}}
+	return HTMLContent{raw: HTMLRawContent{text: text}, ctType: Raw}
 }
 
 func Input(attrs ...HTMLAttribute) HTMLContent {

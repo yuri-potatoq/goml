@@ -1,6 +1,8 @@
 package go_ml
 
 import (
+	"log/slog"
+	"os"
 	"strings"
 	"testing"
 )
@@ -47,17 +49,12 @@ func TestBasicDOM(t *testing.T) {
 			givenDOM:     Input(Type("text")),
 		},
 		{
-			name:         "build non-void tag with inner text - 1",
+			name:         "build non-void tag with inner text",
 			expectedHtml: `<div>olá &#10; mundo</div>`,
 			givenDOM:     Div()(RawText("olá &#10; mundo")),
 		},
 		{
-			name:         "build non-void tag with inner text - 2",
-			expectedHtml: `<div>olá &#10; mundo<div></div>test<div></div></div>`,
-			givenDOM:     Div()(RawText("olá &#10; mundo"), Div()(), RawText("test"), Div()()),
-		},
-		{
-			name:         "build non-void tag with inner text - 2",
+			name:         "build non-void tag with inner text",
 			expectedHtml: `<div>olá &#10; mundo<div></div>test<div></div></div>`,
 			givenDOM:     Div()(RawText("olá &#10; mundo"), Div()(), RawText("test"), Div()()),
 		},
@@ -81,9 +78,15 @@ func TestBasicDOM(t *testing.T) {
 		// },
 	}
 
+	debugLogger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{}))
 	for _, tc := range testSuite {
 		t.Run(tc.name, func(t *testing.T) {
-			parsedDoc := tc.givenDOM.BuildDOM()
+			st := new(strings.Builder)
+			err := tc.givenDOM.BuildDOM(WithLogger(debugLogger), WithWriter(st))
+			if err != nil {
+				t.Error(err)
+			}
+			parsedDoc := st.String()
 			if strings.Compare(parsedDoc, tc.expectedHtml) != 0 {
 				t.Errorf("result not match: given: [%s], expected: [%s]", parsedDoc, tc.expectedHtml)
 			}

@@ -176,14 +176,14 @@ func main() {
 		switch r.Method {
 		case http.MethodGet:
 			doc := PageIndex(AddTodoForm(), ListOfTodos(db.GetAll()...))
-			w.Write([]byte(doc.BuildDOM()))
+			doc.BuildDOM(ht.WithWriter(w))
 			break
 		case http.MethodPost:
 			doc := ListOfTodos(db.Add(TodoList{
 				title:     r.FormValue("task"),
 				isChecked: false,
 			})...)
-			w.Write([]byte(doc.BuildDOM()))
+			doc.BuildDOM(ht.WithWriter(w))
 			break
 		case http.MethodPut:
 			if len(pathStrs) < 3 {
@@ -196,7 +196,7 @@ func main() {
 				if err != nil {
 					break
 				}
-				w.Write([]byte(EditTodoRow(curr).BuildDOM()))
+				EditTodoRow(curr).BuildDOM(ht.WithWriter(w))
 			}
 			// should only be /todo/{disable|enable}/{n}
 			if err := db.Update(pathStrs[3], action == "enable"); err != nil {
@@ -206,7 +206,7 @@ func main() {
 			break
 		case http.MethodDelete:
 			db.Delete(pathStrs[2])
-			w.Write([]byte(ListOfTodos(db.GetAll()...).BuildDOM()))
+			ListOfTodos(db.GetAll()...).BuildDOM(ht.WithWriter(w))
 			break
 		default:
 			w.WriteHeader(http.StatusNotFound)

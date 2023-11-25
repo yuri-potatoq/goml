@@ -16,7 +16,7 @@ func HelloWorldView() go_ml.HTMLContent {
 
 func main() {
 	http.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(HelloWorldView().BuildDOM()))
+		HelloWorldView().BuildDOM(go_ml.WithWriter(w))
 	}))
 	http.ListenAndServe(":8080", http.DefaultServeMux)
 }
