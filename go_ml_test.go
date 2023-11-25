@@ -11,6 +11,7 @@ func TestBasicDOM(t *testing.T) {
 	testSuite := []struct {
 		name         string
 		givenDOM     HTMLContent
+		buildOpts    []buildOpt
 		expectedHtml string
 	}{
 		{
@@ -63,6 +64,34 @@ func TestBasicDOM(t *testing.T) {
 			expectedHtml: `<input name="task" class="text name editable"/>`,
 			givenDOM:     Input(Name("task"), ClassNames("text"), ClassNames("name"), ClassNames("editable")),
 		},
+		{
+			name: "build bare div with class names with default indentation",
+			expectedHtml: `<div class="main container">
+    <div></div>
+</div>`,
+			givenDOM:  Div(ClassNames("main", "container"))(Div()()),
+			buildOpts: []buildOpt{WithDefaultIndentation()},
+		},
+		{
+			name: "build shallow divs with default indentation",
+			expectedHtml: `<div class="main container">
+    <div>
+        <div>
+            <div>
+                <div></div>
+            </div>
+        </div>
+    </div>
+</div>`,
+			givenDOM:  Div(ClassNames("main", "container"))(Div()(
+				Div()(
+					Div()(
+						Div()(),
+					),
+				),
+			)),
+			buildOpts: []buildOpt{WithDefaultIndentation()},
+		},
 		/* HTMX attributes tests */
 		{
 			name:         "build input with htmx attributes",
@@ -82,7 +111,11 @@ func TestBasicDOM(t *testing.T) {
 	for _, tc := range testSuite {
 		t.Run(tc.name, func(t *testing.T) {
 			st := new(strings.Builder)
-			err := tc.givenDOM.BuildDOM(WithLogger(debugLogger), WithWriter(st))
+
+			opts := []buildOpt{WithLogger(debugLogger), WithWriter(st)}
+			opts = append(opts, tc.buildOpts...)
+
+			err := tc.givenDOM.BuildDOM(opts...)
 			if err != nil {
 				t.Error(err)
 			}

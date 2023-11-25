@@ -54,9 +54,9 @@ type buildConfig struct {
 	debug     struct {
 		logger *slog.Logger
 	}
-	identitation struct {
-		isEnable        bool
-		identationLevel uint8
+	indentitation struct {
+		isEnable         bool
+		indentationLevel uint8
 	}
 }
 
@@ -75,10 +75,18 @@ func WithLogger(logger *slog.Logger) buildOpt {
 	}
 }
 
-func WithDefaultIdentation() buildOpt {
+func WithDefaultIndentation() buildOpt {
 	return func(config *buildConfig) {
-		config.identitation.identationLevel = 4
-		config.identitation.isEnable = true
+		config.indentitation.indentationLevel = 4
+		config.indentitation.isEnable = true
+	}
+}
+
+// Choose a indentation level between 0 and 255.
+func WithIndentation(level int) buildOpt {
+	return func(config *buildConfig) {
+		config.indentitation.indentationLevel = uint8(level)
+		config.indentitation.isEnable = true
 	}
 }
 
@@ -107,7 +115,7 @@ func buildDOM(ele HTMLElement, opts ...buildOpt) error {
 		totalWritten, _ = defaultCfg.stdWriter.Write([]byte("<!DOCTYPE html>"))
 	}
 
-	n, err := defaultCfg.parseElement(ele)
+	n, err := defaultCfg.parseElement(ele, 1)
 	if err != nil {
 		return err
 	}
@@ -118,8 +126,9 @@ func buildDOM(ele HTMLElement, opts ...buildOpt) error {
 	return nil
 }
 
-func (cfg *buildConfig) parseElement(ele HTMLElement) (int, error) {
+func (cfg *buildConfig) parseElement(ele HTMLElement, tagDepth int) (int, error) {
 	var attrStr string
+	var rIndentStr, lIndentStr string
 	var attrKeys []string
 	var totalWritten int
 
@@ -127,6 +136,18 @@ func (cfg *buildConfig) parseElement(ele HTMLElement) (int, error) {
 		n, err := cfg.stdWriter.Write([]byte(s))
 		totalWritten += n
 		return err
+	}
+
+	putNChar := func(s string, ch string, n int) string {
+		for i := 0; i < n; i++ {
+			s += ch
+		}
+		return s
+	}
+
+	if cfg.indentitation.isEnable {
+		rIndentStr = putNChar("\n", " ", tagDepth*int(cfg.indentitation.indentationLevel))
+		lIndentStr = putNChar("\n", " ", (tagDepth-1)*int(cfg.indentitation.indentationLevel))
 	}
 
 	// rules:
@@ -163,11 +184,15 @@ func (cfg *buildConfig) parseElement(ele HTMLElement) (int, error) {
 			return totalWritten, err
 		}
 
+		if len(ele.contents) > 0 {
+			_ = writeOrErr(rIndentStr)
+		}
+
 		// threat as element node or just an raw text
 		for _, ct := range ele.contents {
 			switch ct.ctType {
 			case Node:
-				n, err := cfg.parseElement(ct.child)
+				n, err := cfg.parseElement(ct.child, tagDepth+1)
 				if err != nil {
 					return totalWritten, err
 				}
@@ -179,6 +204,10 @@ func (cfg *buildConfig) parseElement(ele HTMLElement) (int, error) {
 			default:
 				return totalWritten, fmt.Errorf("not recognized content type: [%s]", ct.ctType)
 			}
+		}
+
+		if len(ele.contents) > 0 {
+			_ = writeOrErr(lIndentStr)
 		}
 
 		if err := writeOrErr("</" + ele.tagName + ">"); err != nil {
