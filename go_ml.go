@@ -8,6 +8,10 @@ import (
 	"strings"
 )
 
+var (
+	ErrWriterNotFound = errors.New("writer not found!")
+)
+
 /* HTML element definitions */
 type ElementType string
 
@@ -107,12 +111,12 @@ func buildDOM(ele HTMLElement, opts ...buildOpt) error {
 	}
 
 	if defaultCfg.stdWriter == nil {
-		return errors.New("writer not found!")
+		return ErrWriterNotFound
 	}
 
 	// hardcoded html document compliance
 	if ele.tagName == "html" {
-		totalWritten, _ = defaultCfg.stdWriter.Write([]byte("<!DOCTYPE html>"))
+		totalWritten, _ = defaultCfg.stdWriter.Write([]byte("<!DOCTYPE html>\n"))
 	}
 
 	n, err := defaultCfg.parseElement(ele, 1)
@@ -121,7 +125,7 @@ func buildDOM(ele HTMLElement, opts ...buildOpt) error {
 	}
 	totalWritten += n
 
-	defaultCfg.debug.logger.Info("Element was written with: ",
+	defaultCfg.debug.logger.Debug("Element was written with: ",
 		"tag_name", ele.tagName, "bytes", totalWritten)
 	return nil
 }
@@ -145,6 +149,7 @@ func (cfg *buildConfig) parseElement(ele HTMLElement, tagDepth int) (int, error)
 		return s
 	}
 
+	// TODO: fix indentatin bug!
 	if cfg.indentitation.isEnable {
 		rIndentStr = putNChar("\n", " ", tagDepth*int(cfg.indentitation.indentationLevel))
 		lIndentStr = putNChar("\n", " ", (tagDepth-1)*int(cfg.indentitation.indentationLevel))

@@ -2,7 +2,9 @@ package main
 
 import (
 	"fmt"
+	"log/slog"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -12,6 +14,10 @@ import (
 var (
 	htmxCDN     = "https://unpkg.com/htmx.org@1.9.9"
 	tailwindCDN = "https://cdn.tailwindcss.com"
+
+	logger = slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{}))
+
+	db = TodoListDb{storage: make(map[string]TodoList)}
 )
 
 /* Data */
@@ -81,6 +87,13 @@ var (
 	TodoRowButton     = ht.ClassNames("bg-white hover:bg-gray-100 text-gray-800 font-semibold py-2 px-4 border-gray-400 hover:shadow-inner")
 )
 
+// Easy component builders
+func NewButton(innerText string, attrs ...ht.HTMLAttribute) ht.HTMLContent {
+	return ht.Button(
+		append(attrs, DefaultBorder, TodoRowButton)...,
+	)(ht.RawText(innerText))
+}
+
 func PageIndex(partials ...ht.HTMLContent) ht.HTMLContent {
 	return ht.Html()(
 		ht.Head()(
@@ -96,9 +109,52 @@ func PageIndex(partials ...ht.HTMLContent) ht.HTMLContent {
 	)
 }
 
-func EditTodoRow(todo TodoList) ht.HTMLContent {
-	// TODO: ....
-	return ht.Div()()
+func EditTodoRow(t TodoList) ht.HTMLContent {
+	rowId := "todo-row-" + t.id
+	reqBody := fmt.Sprintf("body: `title=${document.querySelectorAll('#%s > th > input')[0].value}`", rowId)
+	return ht.Tr(ht.Id(rowId), ht.ClassNames("flex justify-stretch"))(
+		ht.Th()(
+			ht.Input(ht.Type("text"), ht.Value(t.title)),
+		),
+		ht.Th()(
+			NewButton("Ok",
+				ht.HxOn("click",
+					fmt.Sprintf("fetch(`/todo/edit/%s`, { %s, %s, %s })",
+						t.id, "method: 'PUT'",
+						"headers: { 'Content-Type': 'application/x-www-form-urlencoded'}",
+						reqBody)),
+				ht.HxGet("/todo/"+t.id),
+				ht.HxTrigger("click delay:0.5s"),
+				ht.HxTarget("#"+rowId),
+				ht.HxSwap("outerHTML")),
+		),
+	)
+}
+
+func LoadTodoRow(t TodoList) ht.HTMLContent {
+	rowName := "todo-row-" + t.id
+
+	return ht.Tr(ht.Id(rowName), ht.ClassNames("flex justify-stretch"))(
+		ht.Th(DefaultBorder, ht.ClassNames("h-10 border-gray-100"))(
+			ht.Input(
+				ht.Type("checkbox"),
+				ht.Id(t.id),
+				ht.IsChecked(t.isChecked),
+				ht.HxOn("click",
+					"fetch(`/todo/${this.checked ? 'enable' : 'disable'}/${this.id}`, {method: 'PUT'})")),
+		),
+		ht.Th()(ht.RawText(t.title)),
+		ht.Th()(
+			NewButton("Edit",
+				ht.HxGet("/todo/edit/"+t.id),
+				ht.HxTarget("#"+rowName),
+				ht.HxSwap("outerHTML")),
+			NewButton("Delete",
+				ht.HxDelete("/todo/edit/"+t.id),
+				ht.HxTarget("#todo-list-tb-container"),
+				ht.HxSwap("outerHTML")),
+		),
+	)
 }
 
 func ListOfTodos(todos ...TodoList) ht.HTMLContent {
@@ -108,36 +164,8 @@ func ListOfTodos(todos ...TodoList) ht.HTMLContent {
 
 	var todoLines []ht.HTMLContent
 	for _, t := range todos {
-		todoLines = append(todoLines, ht.Tr()(
-			ht.Th(DefaultBorder, ht.ClassNames("h-10 border-gray-100"))(
-				ht.Input(
-					ht.Type("checkbox"),
-					ht.Id(t.id),
-					ht.IsChecked(t.isChecked),
-					ht.HxOn("click",
-						"fetch(`/todo/${this.checked ? 'enable' : 'disable'}/${this.id}`, {method: 'PUT'})")),
-			),
-			ht.Th()(
-				ht.Input(ht.Type("text")),
-				ht.RawText(t.title),
-			),
-			ht.Th()(
-				ht.Button(
-					DefaultBorder,
-					TodoRowButton,
-					ht.HxPut(fmt.Sprintf("/todo/edit/%s", t.id)),
-					ht.HxTarget("this"),
-					ht.HxSwap("outerHTML"),
-				)(ht.RawText("Edit")),
-				ht.Button(
-					DefaultBorder,
-					TodoRowButton,
-					ht.HxDelete(fmt.Sprintf("/todo/%s", t.id)),
-					ht.HxTarget("#todo-list-tb-container"),
-					ht.HxSwap("outerHTML"),
-				)(ht.RawText("Delete")),
-			),
-		))
+		todoLines = append(todoLines,
+			ht.Div(ht.ClassNames("w-full"))(LoadTodoRow(t)))
 	}
 
 	return ht.Div(ht.Id("todo-list-tb-container"))(
@@ -158,59 +186,98 @@ func AddTodoForm() ht.HTMLContent {
 				DefaultBorder,
 				ht.ClassNames("shadow appearance-none w-full py-2 px-3 mr-4 text-grey-darker")),
 			ht.Div(FlexContainerFull, ht.ClassNames("p-1"))(
-				ht.Button(
-					DefaultBorder,
+				NewButton("Submit",
 					ht.ClassNames("p-2 text-teal border-teal hover:text-white hover:bg-teal"),
-					ht.Type("submit"))(ht.RawText("Submit")),
+					ht.Type("submit")),
 			),
 		),
 	)
 }
 
-func main() {
-	db := TodoListDb{storage: make(map[string]TodoList)}
+/* Handlers */
+func mainHandler(w http.ResponseWriter, r *http.Request) {
+	buildWithOpts := func(doc ht.HTMLContent) {
+		err := doc.BuildDOM(
+			ht.WithDefaultIndentation(),
+			ht.WithWriter(w),
+			ht.WithLogger(logger),
+		)
+		if err != nil {
+			w.Write([]byte(fmt.Sprintf(`{ "message": "%s"}`, err)))
+			w.WriteHeader(http.StatusInternalServerError)
+		}
+	}
 
-	http.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		pathStrs := strings.Split(strings.TrimSpace(r.URL.Path), "/")
+	pathStrs := strings.Split(strings.TrimSpace(r.URL.Path), "/")
 
-		switch r.Method {
-		case http.MethodGet:
-			doc := PageIndex(AddTodoForm(), ListOfTodos(db.GetAll()...))
-			doc.BuildDOM(ht.WithWriter(w))
+	switch r.Method {
+	case http.MethodGet:
+		var doc ht.HTMLContent
+		if len(pathStrs) >= 4 && pathStrs[2] == "edit" {
+			// /todo/edit/{n}
+			t, err := db.Get(pathStrs[3])
+			if err != nil {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			doc = EditTodoRow(t)
+		} else if len(pathStrs) >= 3 {
+			// /todo/{n}
+			t, err := db.Get(pathStrs[2])
+			if err != nil {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			doc = LoadTodoRow(t)
+		} else {
+			doc = PageIndex(
+				AddTodoForm(), ListOfTodos(db.GetAll()...))
+		}
+
+		buildWithOpts(doc)
+		break
+	case http.MethodPost:
+		buildWithOpts(ListOfTodos(db.Add(TodoList{
+			title:     r.FormValue("task"),
+			isChecked: false,
+		})...))
+		break
+	case http.MethodPut:
+		if len(pathStrs) < 4 {
 			break
-		case http.MethodPost:
-			doc := ListOfTodos(db.Add(TodoList{
-				title:     r.FormValue("task"),
-				isChecked: false,
-			})...)
-			doc.BuildDOM(ht.WithWriter(w))
-			break
-		case http.MethodPut:
-			if len(pathStrs) < 3 {
+		}
+		action := pathStrs[2]
+
+		switch action {
+		case "edit":
+			// /todo/edit/{n}
+			curr, err := db.EditTitle(pathStrs[3], r.FormValue("title"))
+			if err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
 				break
 			}
-			action := pathStrs[2]
+			buildWithOpts(EditTodoRow(curr))
 
-			if action == "edit" {
-				curr, err := db.EditTitle(pathStrs[3], r.FormValue("title"))
-				if err != nil {
-					break
-				}
-				EditTodoRow(curr).BuildDOM(ht.WithWriter(w))
-			}
+			break
+		case "disable", "enable":
 			// should only be /todo/{disable|enable}/{n}
 			if err := db.Update(pathStrs[3], action == "enable"); err != nil {
-				fmt.Println(err)
 				w.WriteHeader(http.StatusBadRequest)
 			}
 			break
-		case http.MethodDelete:
-			db.Delete(pathStrs[2])
-			ListOfTodos(db.GetAll()...).BuildDOM(ht.WithWriter(w))
-			break
-		default:
-			w.WriteHeader(http.StatusNotFound)
 		}
-	}))
+		break
+	case http.MethodDelete:
+		db.Delete(pathStrs[2])
+		buildWithOpts(ListOfTodos(db.GetAll()...))
+		break
+	default:
+		w.WriteHeader(http.StatusNotFound)
+	}
+}
+
+func main() {
+	http.Handle("/", http.HandlerFunc(mainHandler))
+
 	http.ListenAndServe(":8080", http.DefaultServeMux)
 }

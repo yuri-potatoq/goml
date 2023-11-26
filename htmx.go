@@ -13,8 +13,16 @@ func HxDelete(url string) HTMLAttribute {
 	return Attr("hx-delete", DoubleQuoted, url)
 }
 
+func HxGet(url string) HTMLAttribute {
+	return Attr("hx-get", DoubleQuoted, url)
+}
+
 func HxTarget(value string) HTMLAttribute {
 	return Attr("hx-target", DoubleQuoted, value)
+}
+
+func HxTrigger(value string) HTMLAttribute {
+	return Attr("hx-trigger", DoubleQuoted, value)
 }
 
 func HxSwap(value string) HTMLAttribute {
