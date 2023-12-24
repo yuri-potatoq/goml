@@ -2,47 +2,22 @@ package go_ml
 
 import (
 	"errors"
-	"fmt"
+	xnet_html "golang.org/x/net/html"
+	"golang.org/x/net/html/atom"
 	"io"
 	"log/slog"
-	"strings"
 )
 
 var (
 	ErrWriterNotFound = errors.New("writer not found!")
 )
 
-/* HTML element definitions */
-type ElementType string
-
-const (
-	NonVoid ElementType = "non-void"
-	Void    ElementType = "void"
+/* Type aliases */
+type (
+	HtmlAttribute xnet_html.Attribute
+	HtmlNode      struct{ *xnet_html.Node }
+	HtmlNodeType  xnet_html.NodeType
 )
-
-type ContentType string
-
-const (
-	Raw  ContentType = "raw-text"
-	Node ContentType = "node"
-)
-
-type HTMLRawContent struct {
-	text string
-}
-
-type HTMLElement struct {
-	tagName  string
-	attrs    []HTMLAttribute
-	contents []HTMLContent
-	elType   ElementType
-}
-
-type HTMLContent struct {
-	ctType ContentType
-	child  HTMLElement
-	raw    HTMLRawContent
-}
 
 // ref: https://github.com/golang/go/issues/62005#issuecomment-1747630201
 type NopWritter struct{}
@@ -94,309 +69,158 @@ func WithIndentation(level int) buildOpt {
 	}
 }
 
-func (ele HTMLElement) BuildDOM(opts ...buildOpt) error {
-	return buildDOM(ele, opts...)
-}
-
-func (ct HTMLContent) BuildDOM(opts ...buildOpt) error {
-	return buildDOM(ct.child, opts...)
-}
-
-func buildDOM(ele HTMLElement, opts ...buildOpt) error {
-	var totalWritten int
-	defaultCfg := new(buildConfig)
-	defaultCfg.debug.logger = NopLogger()
-	for _, op := range opts {
-		op(defaultCfg)
-	}
-
-	if defaultCfg.stdWriter == nil {
-		return ErrWriterNotFound
-	}
-
-	// hardcoded html document compliance
-	if ele.tagName == "html" {
-		totalWritten, _ = defaultCfg.stdWriter.Write([]byte("<!DOCTYPE html>\n"))
-	}
-
-	n, err := defaultCfg.parseElement(ele, 1)
-	if err != nil {
-		return err
-	}
-	totalWritten += n
-
-	defaultCfg.debug.logger.Debug("Element was written with: ",
-		"tag_name", ele.tagName, "bytes", totalWritten)
-	return nil
-}
-
-func (cfg *buildConfig) parseElement(ele HTMLElement, tagDepth int) (int, error) {
-	var attrStr string
-	var rIndentStr, lIndentStr string
-	var attrKeys []string
-	var totalWritten int
-
-	writeOrErr := func(s string) error {
-		n, err := cfg.stdWriter.Write([]byte(s))
-		totalWritten += n
-		return err
-	}
-
-	putNChar := func(s string, ch string, n int) string {
-		for i := 0; i < n; i++ {
-			s += ch
-		}
-		return s
-	}
-
-	// TODO: fix indentatin bug!
-	if cfg.indentitation.isEnable {
-		rIndentStr = putNChar("\n", " ", tagDepth*int(cfg.indentitation.indentationLevel))
-		lIndentStr = putNChar("\n", " ", (tagDepth-1)*int(cfg.indentitation.indentationLevel))
-	}
-
-	// rules:
-	// 1. we need to merge all attributes with the same name
-	// 2. if element has no attrs, the space become a suffix and will be removed
-	attrMap := make(map[string]HTMLAttribute)
-	for _, attr := range ele.attrs {
-		if curAttr, ok := attrMap[attr.name]; ok {
-			curAttr.values = append(curAttr.values, attr.values...)
-			attrMap[attr.name] = curAttr
-		} else {
-			attrKeys = append(attrKeys, attr.name)
-			attrMap[attr.name] = attr
-		}
-	}
-
-	// TODO: find another aproach to have all the parsed attributes in O(n)
-	for _, k := range attrKeys {
-		attrStr += " " + attrMap[k].String()
-	}
-	attrStr = strings.TrimSuffix(attrStr, " ")
-
-	switch ele.elType {
-	// void -> <[tag][?attrs]/>
-	case Void:
-		if err := writeOrErr(fmt.Sprintf(`<%s%s/>`, ele.tagName, attrStr)); err != nil {
-			return totalWritten, err
-		}
-		return totalWritten, nil
-
-	// non-void -> <[tag][?attrs]>[content]</[tag]>
-	default:
-		if err := writeOrErr("<" + ele.tagName + attrStr + ">"); err != nil {
-			return totalWritten, err
-		}
-
-		if len(ele.contents) > 0 {
-			_ = writeOrErr(rIndentStr)
-		}
-
-		// threat as element node or just an raw text
-		for _, ct := range ele.contents {
-			switch ct.ctType {
-			case Node:
-				n, err := cfg.parseElement(ct.child, tagDepth+1)
-				if err != nil {
-					return totalWritten, err
-				}
-				totalWritten += n
-			case Raw:
-				if err := writeOrErr(ct.raw.text); err != nil {
-					return totalWritten, err
-				}
-			default:
-				return totalWritten, fmt.Errorf("not recognized content type: [%s]", ct.ctType)
-			}
-		}
-
-		if len(ele.contents) > 0 {
-			_ = writeOrErr(lIndentStr)
-		}
-
-		if err := writeOrErr("</" + ele.tagName + ">"); err != nil {
-			return totalWritten, err
-		}
-		return totalWritten, nil
-	}
-}
-
-/*
-	HTML attribute definitions
-
-Ref: https://www.w3.org/TR/2012/WD-html-markup-20120329/syntax.html#syntax-attributes
-*/
-type AttributeType string
-
-const (
-	None         AttributeType = "none"
-	Single       AttributeType = "single"
-	DoubleQuoted AttributeType = "double-quoted"
-)
-
-type HTMLAttribute struct {
-	name string
-	// space delimited values
-	values   []string
-	attrType AttributeType
-}
-
-func (attr HTMLAttribute) String() string {
-	switch attr.attrType {
-	case DoubleQuoted:
-		var st string
-		for _, v := range attr.values {
-			st += v + " "
-		}
-		return fmt.Sprintf(`%s="%s"`, attr.name, strings.TrimSuffix(st, " "))
-	case Single:
-		return attr.name
-	case None:
-		return ""
-	default:
-		return ""
-	}
+func BuildDOM(w io.Writer, n *HtmlNode) error {
+	return xnet_html.Render(w, n.Node)
 }
 
 /* Attributes functions declarations */
-func Attr(name string, attrType AttributeType, values ...string) HTMLAttribute {
-	return HTMLAttribute{name: name, values: values, attrType: attrType}
+func Attr(at atom.Atom, values string) HtmlAttribute {
+	return HtmlAttribute{Key: at.String(), Val: values}
 }
 
-func ClassNames(values ...string) HTMLAttribute {
-	return Attr("class", DoubleQuoted, values...)
+func ClassNames(values string) HtmlAttribute {
+	return Attr(atom.Class, values)
 }
 
-func PlaceHolder(value string) HTMLAttribute {
-	return Attr("placeholder", DoubleQuoted, value)
+func PlaceHolder(value string) HtmlAttribute {
+	return Attr(atom.Placeholder, value)
 }
 
-func Id(values ...string) HTMLAttribute {
-	return Attr("id", DoubleQuoted, values...)
+func Id(value string) HtmlAttribute {
+	return Attr(atom.Id, value)
 }
 
-func Name(values ...string) HTMLAttribute {
-	return Attr("name", DoubleQuoted, values...)
+func Name(value string) HtmlAttribute {
+	return Attr(atom.Name, value)
 }
 
-func Lang(values ...string) HTMLAttribute {
-	return Attr("lang", DoubleQuoted, values...)
+func Lang(value string) HtmlAttribute {
+	return Attr(atom.Lang, value)
 }
 
-func Type(values ...string) HTMLAttribute {
-	return Attr("type", DoubleQuoted, values...)
+func Type(value string) HtmlAttribute {
+	return Attr(atom.Type, value)
 }
 
-func Value(values ...string) HTMLAttribute {
-	return Attr("value", DoubleQuoted, values...)
+func Value(value string) HtmlAttribute {
+	return Attr(atom.Value, value)
 }
 
-func Src(values ...string) HTMLAttribute {
-	return Attr("src", DoubleQuoted, values...)
+func Src(value string) HtmlAttribute {
+	return Attr(atom.Src, value)
 }
 
-func Defer() HTMLAttribute {
-	return Attr("defer", Single)
+func Defer() HtmlAttribute {
+	return Attr(atom.Defer, "")
 }
 
-func Checked() HTMLAttribute {
-	return Attr("checked", Single)
+func Checked() HtmlAttribute {
+	return Attr(atom.Checked, "")
 }
 
-func Required() HTMLAttribute {
-	return Attr("required", Single)
+func Required() HtmlAttribute {
+	return Attr(atom.Required, "")
 }
 
-func Action(values ...string) HTMLAttribute {
-	return Attr("action", Single, values...)
+func Action(value string) HtmlAttribute {
+	return Attr(atom.Action, value)
 }
 
-func Method(values ...string) HTMLAttribute {
-	return Attr("method", Single, values...)
+func Method(value string) HtmlAttribute {
+	return Attr(atom.Method, value)
 }
 
 /* Attributes utils */
-func IsChecked(check bool) (attr HTMLAttribute) {
+func IsChecked(check bool) HtmlAttribute {
 	if check {
 		return Checked()
 	}
-	return HTMLAttribute{attrType: None}
+	return HtmlAttribute{}
 }
 
-/* Tags functions declarations */
-type tagClosure func(contents ...HTMLContent) HTMLContent
+type tagClosure func(contents ...*HtmlNode) *HtmlNode
 
-func Tag(tagName string, elType ElementType, attrs ...HTMLAttribute) tagClosure {
-	return func(contents ...HTMLContent) HTMLContent {
-		return HTMLContent{
-			child: HTMLElement{
-				tagName:  tagName,
-				contents: contents,
-				attrs:    attrs,
-				elType:   elType,
-			},
-			ctType: Node,
+func Tag(tagname atom.Atom, nt xnet_html.NodeType, attrs ...HtmlAttribute) tagClosure {
+	return func(contents ...*HtmlNode) *HtmlNode {
+		n := &xnet_html.Node{
+			Type: xnet_html.NodeType(nt),
+			Data: tagname.String(),
 		}
+
+		for _, attr := range attrs {
+			n.Attr = append(n.Attr, xnet_html.Attribute(attr))
+		}
+
+		for _, ct := range contents {
+			// TODO: add indentation feature
+			// n.InsertBefore(&net_html.Node{Data: "\n\t", Type: net_html.TextNode}, nil)
+			n.InsertBefore(ct.Node, nil)
+			// n.InsertBefore(&net_html.Node{Data: "\n", Type: net_html.TextNode}, nil)
+		}
+		return &HtmlNode{Node: n}
 	}
 }
 
-func RawText(text string) HTMLContent {
-	return HTMLContent{raw: HTMLRawContent{text: text}, ctType: Raw}
+func Input(attrs ...HtmlAttribute) *HtmlNode {
+	return Tag(atom.Input, xnet_html.ElementNode, attrs...)()
 }
 
-func Input(attrs ...HTMLAttribute) HTMLContent {
-	return Tag("input", Void, attrs...)()
+func Div(attrs ...HtmlAttribute) tagClosure {
+	return Tag(atom.Div, xnet_html.ElementNode, attrs...)
 }
 
-func Button(attrs ...HTMLAttribute) tagClosure {
-	return Tag("button", NonVoid, attrs...)
+func Comment(text string) *HtmlNode {
+	return &HtmlNode{&xnet_html.Node{Type: xnet_html.CommentNode, Data: text}}
 }
 
-func Script(attrs ...HTMLAttribute) tagClosure {
-	return Tag("script", NonVoid, attrs...)
+func RawText(text string) *HtmlNode {
+	return &HtmlNode{&xnet_html.Node{Type: xnet_html.RawNode, Data: text}}
 }
 
-func Title(attrs ...HTMLAttribute) tagClosure {
-	return Tag("title", NonVoid, attrs...)
+func Button(attrs ...HtmlAttribute) tagClosure {
+	return Tag(atom.Button, xnet_html.ElementNode, attrs...)
 }
 
-func Head(attrs ...HTMLAttribute) tagClosure {
-	return Tag("head", NonVoid, attrs...)
+func Script(attrs ...HtmlAttribute) tagClosure {
+	return Tag(atom.Script, xnet_html.ElementNode, attrs...)
 }
 
-func Div(attrs ...HTMLAttribute) tagClosure {
-	return Tag("div", NonVoid, attrs...)
+func Title(attrs ...HtmlAttribute) tagClosure {
+	return Tag(atom.Title, xnet_html.ElementNode, attrs...)
 }
 
-func Body(attrs ...HTMLAttribute) tagClosure {
-	return Tag("body", NonVoid, attrs...)
+func Head(attrs ...HtmlAttribute) tagClosure {
+	return Tag(atom.Head, xnet_html.ElementNode, attrs...)
 }
 
-func Html(attrs ...HTMLAttribute) tagClosure {
-	return Tag("html", NonVoid, attrs...)
+func Body(attrs ...HtmlAttribute) tagClosure {
+	return Tag(atom.Body, xnet_html.ElementNode, attrs...)
 }
 
-func Form(attrs ...HTMLAttribute) tagClosure {
-	return Tag("form", NonVoid, attrs...)
+func Html(attrs ...HtmlAttribute) tagClosure {
+	return Tag(atom.Html, xnet_html.ElementNode, attrs...)
 }
 
-func Label(attrs ...HTMLAttribute) tagClosure {
-	return Tag("label", NonVoid, attrs...)
+func Form(attrs ...HtmlAttribute) tagClosure {
+	return Tag(atom.Form, xnet_html.ElementNode, attrs...)
 }
 
-func Table(attrs ...HTMLAttribute) tagClosure {
-	return Tag("table", NonVoid, attrs...)
+func Label(attrs ...HtmlAttribute) tagClosure {
+	return Tag(atom.Label, xnet_html.ElementNode, attrs...)
 }
 
-func Th(attrs ...HTMLAttribute) tagClosure {
-	return Tag("th", NonVoid, attrs...)
+func Table(attrs ...HtmlAttribute) tagClosure {
+	return Tag(atom.Table, xnet_html.ElementNode, attrs...)
 }
 
-func Tr(attrs ...HTMLAttribute) tagClosure {
-	return Tag("tr", NonVoid, attrs...)
+func Th(attrs ...HtmlAttribute) tagClosure {
+	return Tag(atom.Th, xnet_html.ElementNode, attrs...)
 }
 
-func Td(attrs ...HTMLAttribute) tagClosure {
-	return Tag("td", NonVoid, attrs...)
+func Tr(attrs ...HtmlAttribute) tagClosure {
+	return Tag(atom.Tr, xnet_html.ElementNode, attrs...)
+}
+
+func Td(attrs ...HtmlAttribute) tagClosure {
+	return Tag(atom.Td, xnet_html.ElementNode, attrs...)
 }

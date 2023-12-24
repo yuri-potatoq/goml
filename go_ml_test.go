@@ -1,8 +1,6 @@
 package go_ml
 
 import (
-	"log/slog"
-	"os"
 	"strings"
 	"testing"
 )
@@ -10,8 +8,7 @@ import (
 func TestBasicDOM(t *testing.T) {
 	testSuite := []struct {
 		name         string
-		givenDOM     HTMLContent
-		buildOpts    []buildOpt
+		givenDOM     *HtmlNode
 		expectedHtml string
 	}{
 		{
@@ -22,7 +19,7 @@ func TestBasicDOM(t *testing.T) {
 		{
 			name:         "build bare div with class names",
 			expectedHtml: `<div class="main container"><div></div></div>`,
-			givenDOM:     Div(ClassNames("main", "container"))(Div()()),
+			givenDOM:     Div(ClassNames("main container"))(Div()()),
 		},
 		{
 			name:         "build script tag with non key-valued attributes",
@@ -69,8 +66,7 @@ func TestBasicDOM(t *testing.T) {
 			expectedHtml: `<div class="main container">
     <div></div>
 </div>`,
-			givenDOM:  Div(ClassNames("main", "container"))(Div()()),
-			buildOpts: []buildOpt{WithDefaultIndentation()},
+			givenDOM: Div(ClassNames("main container"))(Div()()),
 		},
 		{
 			name: "build shallow divs with default indentation",
@@ -83,21 +79,20 @@ func TestBasicDOM(t *testing.T) {
         </div>
     </div>
 </div>`,
-			givenDOM:  Div(ClassNames("main", "container"))(Div()(
+			givenDOM: Div(ClassNames("main container"))(Div()(
 				Div()(
 					Div()(
 						Div()(),
 					),
 				),
 			)),
-			buildOpts: []buildOpt{WithDefaultIndentation()},
 		},
 		/* HTMX attributes tests */
-		{
-			name:         "build input with htmx attributes",
-			expectedHtml: `<input checked hx-on:click="console.log('hello')"/>`,
-			givenDOM:     Input(Checked(), HxOn("click", "console.log('hello')")),
-		},
+		// {
+		// 	name:         "build input with htmx attributes",
+		// 	expectedHtml: `<input checked hx-on:click="console.log('hello')"/>`,
+		// 	givenDOM:     Input(Checked(), HxOn("click", "console.log('hello')")),
+		// },
 		// TODO: fix wrong attribute spaces sort
 		// i.g.: <input type="checkbox"required required="required"/>
 		// {
@@ -107,15 +102,15 @@ func TestBasicDOM(t *testing.T) {
 		// },
 	}
 
-	debugLogger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{}))
+	// debugLogger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{}))
 	for _, tc := range testSuite {
 		t.Run(tc.name, func(t *testing.T) {
 			st := new(strings.Builder)
 
-			opts := []buildOpt{WithLogger(debugLogger), WithWriter(st)}
-			opts = append(opts, tc.buildOpts...)
+			// opts := []buildOpt{WithLogger(debugLogger), WithWriter(st)}
+			// opts = append(opts, tc.buildOpts...)
 
-			err := tc.givenDOM.BuildDOM(opts...)
+			err := BuildDOM(st, tc.givenDOM)
 			if err != nil {
 				t.Error(err)
 			}

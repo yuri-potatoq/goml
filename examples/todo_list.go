@@ -114,7 +114,7 @@ func EditTodoRow(t TodoList) ht.HTMLContent {
 	reqBody := fmt.Sprintf("body: `title=${document.querySelectorAll('#%s > th > input')[0].value}`", rowId)
 	return ht.Tr(ht.Id(rowId), ht.ClassNames("flex justify-stretch"))(
 		ht.Th()(
-			ht.Input(ht.Type("text"), ht.Value(t.title)),
+			ht.Input(ht.TypeText, ht.Value(t.title)),
 		),
 		ht.Th()(
 			NewButton("Ok",

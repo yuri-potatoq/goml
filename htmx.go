@@ -1,8 +1,10 @@
+//go:build nop
+
 package go_ml
 
 /* Htmx custom Attributes */
 func HxPost(url string) HTMLAttribute {
-	return Attr("hx-post", DoubleQuoted, url)
+	return Attr("hx-post", url)
 }
 
 func HxPut(url string) HTMLAttribute {
